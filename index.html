@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MoodPalette | AI Emotion Colorist</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;500;700&family=Switzer:wght@400;600;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+    <style>
+        :root {
+            --bg-gradient: radial-gradient(circle at center, #2b2b2b, #000);
+            --glass-bg: rgba(255, 255, 255, 0.05);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --text-main: #ffffff;
+            --text-secondary: rgba(255, 255, 255, 0.6);
+            --accent: #fff;
+            --c1: #333; --c2: #444; --c3: #555; --c4: #666; --c5: #777;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-font-smoothing: antialiased; }
+        
+        body {
+            font-family: 'Switzer', sans-serif;
+            background: var(--bg-gradient);
+            color: var(--text-main);
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            transition: background 1.5s ease;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Canvas Layers */
+        #fx-canvas, #video-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 1;
+        }
+        
+        /* Hidden Video Feed (Used for processing) */
+        #video-feed {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 160px;
+            height: auto;
+            border-radius: 12px;
+            opacity: 0; /* Hidden until loaded */
+            transition: opacity 0.5s;
+            z-index: 10;
+            border: 2px solid var(--glass-border);
+            transform: scaleX(-1); /* Mirror */
+        }
+
+        #video-feed.active { opacity: 0.3; }
+        #video-feed.active:hover { opacity: 1; cursor: pointer; }
+
+        /* Main Glass Card */
+        .glass-panel {
+            position: relative;
+            width: 90%;
+            max-width: 500px;
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px) saturate(180%);
+            -webkit-backdrop-filter: blur(20px) saturate(180%);
+            border: 1px solid var(--glass-border);
+            border-radius: 32px;
+            padding: 40px;
+            z-index: 5;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.3);
+            text-align: center;
+            transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        /* Typography */
+        h1 {
+            font-family: 'Space Grotesk', sans-serif;
+            font-weight: 700;
+            font-size: 3rem;
+            letter-spacing: -0.05em;
+            margin-bottom: 0.2rem;
+            line-height: 1;
+        }
+
+        .subtitle {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            margin-bottom: 30px;
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+        }
+
+        .emotion-display {
+            min-height: 60px;
+            margin-bottom: 20px;
+        }
+
+        .confidence-meter {
+            font-size: 0.8rem;
+            font-family: 'Space Grotesk';
+            opacity: 0.7;
+            margin-top: 5px;
+        }
+
+        /* Palette Grid */
+        .palette-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 8px;
+            height: 80px;
+            margin: 30px 0;
+            border-radius: 16px;
+            overflow: hidden;
+            transition: all 0.5s ease;
+        }
+
+        .color-swatch {
+            height: 100%;
+            cursor: pointer;
+            transition: transform 0.2s;
+            position: relative;
+        }
+        
+        .color-swatch:hover { transform: scale(1.1); z-index: 2; border-radius: 4px; }
+        
+        .hex-code {
+            position: absolute;
+            bottom: 5px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 0.6rem;
+            opacity: 0;
+            transition: opacity 0.2s;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+            font-family: monospace;
+        }
+        
+        .color-swatch:hover .hex-code { opacity: 1; }
+
+        /* Actions */
+        .action-row {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        button {
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+            color: var(--text-main);
+            padding: 12px 24px;
+            border-radius: 100px;
+            font-family: 'Switzer', sans-serif;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 0.9rem;
+        }
+
+        button:hover {
+            background: rgba(255,255,255,0.2);
+            transform: translateY(-2px);
+        }
+
+        button.primary {
+            background: var(--text-main);
+            color: #000;
+        }
+        button.primary:hover { background: #eee; }
+
+        /* Spotify Link */
+        .spotify-link {
+            display: block;
+            margin-top: 20px;
+            color: var(--text-main);
+            text-decoration: none;
+            font-size: 0.85rem;
+            opacity: 0.6;
+            transition: opacity 0.2s;
+            border-bottom: 1px solid transparent;
+        }
+        .spotify-link:hover { opacity: 1; border-bottom: 1px solid var(--text-main); }
+
+        /* Loading Overlay */
+        #loader {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: #000;
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            transition: opacity 0.8s;
+        }
+        
+        .loader-text { margin-top: 20px; font-family: 'Space Grotesk'; letter-spacing: 2px; }
+        
+        .spinner {
+            width: 50px; height: 50px;
+            border: 3px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes pulse-ring {
+            0% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.4); }
+            70% { box-shadow: 0 0 0 20px rgba(255, 255, 255, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
+        }
+
+        .pulse-active {
+            animation: pulse-ring 2s infinite;
+        }
+
+        /* Mobile Tweaks */
+        @media (max-width: 600px) {
+            h1 { font-size: 2.5rem; }
+            .glass-panel { padding: 25px; width: 95%; }
+            .palette-grid { height: 60px; }
+        }
+
+        /* Utility Classes for dynamic styling */
+        .light-mode-text { --text-main: #111; --text-secondary: rgba(0,0,0,0.6); --glass-bg: rgba(255,255,255,0.2); --glass-border: rgba(255,255,255,0.4); }
+        .dark-mode-text { --text-main: #fff; --text-secondary: rgba(255,255,255,0.6); --glass-bg: rgba(0,0,0,0.2); --glass-border: rgba(255,255,255,0.1); }
+    </style>
+</head>
+<body>
+
+    <!-- Loading Screen -->
+    <div id="loader">
+        <div class="spinner"></div>
+        <div class="loader-text">LOADING NEURAL NETWORKS...</div>
+    </div>
+
+    <!-- Video & FX -->
+    <video id="video-feed" autoplay muted playsinline></video>
+    <canvas id="fx-canvas"></canvas>
+
+    <!-- Main UI -->
+    <div class="glass-panel" id="main-card">
+        <div class="subtitle">MoodPalette AI 1.0</div>
+        
+        <div class="emotion-display">
+            <h1 id="emotion-name">Neutral</h1>
+            <div class="confidence-meter" id="confidence-text">Waiting for camera...</div>
+        </div>
+
+        <div class="palette-grid" id="palette-container">
+            <div class="color-swatch" style="background: var(--c1)"><span class="hex-code"></span></div>
+            <div class="color-swatch" style="background: var(--c2)"><span class="hex-code"></span></div>
+            <div class="color-swatch" style="background: var(--c3)"><span class="hex-code"></span></div>
+            <div class="color-swatch" style="background: var(--c4)"><span class="hex-code"></span></div>
+            <div class="color-swatch" style="background: var(--c5)"><span class="hex-code"></span></div>
+        </div>
+
+        <div class="action-row">
+            <button class="primary" id="recalibrate-btn">Scan Mood</button>
+            <button id="dl-btn">Download</button>
+            <button id="copy-btn">Copy CSS</button>
+        </div>
+
+        <a href="#" target="_blank" class="spotify-link" id="spotify-link">
+            <i class="fas fa-music"></i> Listen to the vibe
+        </a>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
